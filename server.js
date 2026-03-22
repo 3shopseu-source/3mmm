@@ -483,6 +483,126 @@ app.post('/buy-xmr', async (req, res) => {
 });
 
 // ─────────────────────────────────────────
+// LISTINGS — Get all / filter
+// ─────────────────────────────────────────
+app.get('/listings', async (req, res) => {
+  try {
+    const { category, search, limit = 50, offset = 0 } = req.query;
+
+    let query = sb.from('listings')
+      .select('*')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+
+    if (category && category !== 'all') query = query.eq('category', category);
+    if (search) query = query.ilike('title', `%${search}%`);
+
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({ listings: data || [], total: data?.length || 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────
+// LISTINGS — Get single
+// ─────────────────────────────────────────
+app.get('/listings/:id', async (req, res) => {
+  try {
+    const { data, error } = await sb.from('listings').select('*').eq('id', req.params.id).single();
+    if (error) return res.status(404).json({ error: 'Listing not found' });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────
+// LISTINGS — Create
+// ─────────────────────────────────────────
+app.post('/listings', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Auth required' });
+
+    const { data: authData, error: authError } = await sb.auth.getUser(token);
+    if (authError || !authData.user) return res.status(401).json({ error: 'Invalid token' });
+
+    const { title, description, price, category, condition, location, images, allow_barter, xmr_accepted } = req.body;
+    if (!title || !price || !category) return res.status(400).json({ error: 'title, price and category required' });
+
+    const { data, error } = await sb.from('listings').insert({
+      title,
+      description: description || '',
+      price: parseFloat(price),
+      category,
+      condition: condition || 'used',
+      location: location || '',
+      images: images || [],
+      allow_barter: allow_barter || false,
+      xmr_accepted: xmr_accepted || false,
+      seller_id: authData.user.id,
+      seller_username: authData.user.user_metadata?.username || authData.user.email,
+      status: 'active',
+      created_at: new Date().toISOString()
+    }).select().single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true, listing: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────
+// LISTINGS — Delete (owner only)
+// ─────────────────────────────────────────
+app.delete('/listings/:id', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Auth required' });
+
+    const { data: authData, error: authError } = await sb.auth.getUser(token);
+    if (authError || !authData.user) return res.status(401).json({ error: 'Invalid token' });
+
+    const { data: listing } = await sb.from('listings').select('seller_id').eq('id', req.params.id).single();
+    if (!listing) return res.status(404).json({ error: 'Listing not found' });
+    if (listing.seller_id !== authData.user.id) return res.status(403).json({ error: 'Not your listing' });
+
+    await sb.from('listings').update({ status: 'deleted' }).eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────
+// LISTINGS — My listings
+// ─────────────────────────────────────────
+app.get('/my-listings', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Auth required' });
+
+    const { data: authData, error: authError } = await sb.auth.getUser(token);
+    if (authError || !authData.user) return res.status(401).json({ error: 'Invalid token' });
+
+    const { data } = await sb.from('listings')
+      .select('*')
+      .eq('seller_id', authData.user.id)
+      .neq('status', 'deleted')
+      .order('created_at', { ascending: false });
+
+    res.json({ listings: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────
 // STRIPE WEBHOOK
 // ─────────────────────────────────────────
 app.post('/webhook', async (req, res) => {
