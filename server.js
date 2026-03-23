@@ -1,17 +1,27 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
-const sb = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+// ── Safe Stripe init ──
+let stripe = null;
+if (process.env.STRIPE_SECRET_KEY) {
+  stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+} else {
+  console.warn('⚠️  STRIPE_SECRET_KEY not set — Stripe disabled');
+}
+
+// ── Safe Supabase init ──
+let sb = null;
+if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+  sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+} else {
+  console.warn('⚠️  SUPABASE_URL or SUPABASE_SERVICE_KEY not set — DB disabled');
+}
 
 // ─────────────────────────────────────────
 // CASHBACK CONFIG
@@ -655,3 +665,4 @@ app.listen(PORT, () => {
 🌐 Frontend: ${FRONTEND_URL}
   `);
 });
+
